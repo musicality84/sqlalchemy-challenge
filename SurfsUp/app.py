@@ -2,8 +2,8 @@
 from flask import Flask, jsonify
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import Session
-from sqlalchemy import create_engine, func
-from sqlalchemy import cast, Date
+from sqlalchemy import create_engine, func, null
+from datetime import datetime
 import datetime as dt
 import numpy as np
 
@@ -39,8 +39,8 @@ def home():
         f"/api/v1.0/precipitation<br/>"
         f"/api/v1.0/stations<br/>"
         f"/api/v1.0/tobs<br/>"
-        f"/api/v1.0/<start><br/>"
-        f"/api/v1.0/<start>/<end><br/>"
+        f"/api/v1.0/<start>  Enter a start date in the yyyy-mm-dd format.<br/>"
+        f"/api/v1.0/<start>/<end>   Enter a start date after v1.0/ and an end date after the last / in the yyyy-mm-dd format.  Ensure your end date is after your start date<br/>"
     )
 
 @app.route("/api/v1.0/precipitation")
@@ -81,31 +81,48 @@ def temp():
 @app.route("/api/v1.0/<start>")
 def start(start):
     session = Session(engine)
-    sel = [Measurement.tobs,
-           func.min(Measurement.tobs),
-           func.max(Measurement.tobs),
-           func.avg(Measurement.tobs)]
-    for date in (Measurement.date):
-        if start in date:
-            temp_stats = session.query(*sel).\
-                filter(Measurement.date > start).all()
-            return jsonify(temp_stats)
-        return jsonify({"error": "Date not found."}), 404
+    date = start
+    exists = session.query(Measurement.date).\
+        filter(Measurement.date == date).first() is not None
+    if exists is False:
+        return jsonify({"error": "Date not found. Please ensure you have entered your date in the yyyy-mm-dd format"}), 404
+        session.close()
+    else:
+        sel = [func.min(Measurement.tobs),
+            func.max(Measurement.tobs),
+            func.avg(Measurement.tobs)]
+        temp_stats = session.query(*sel). \
+            filter(Measurement.date > date).all()
+        temperature_stats = list(np.ravel(temp_stats))
+        return jsonify(temperature_stats)
     session.close()
+
 
 @app.route("/api/v1.0/<start>/<end>")
 def start_end(start, end):
     session = Session(engine)
-    sel = [Measurement.tobs,
-           func.min(Measurement.tobs),
+    start_date = start
+    end_date = end
+    exists_1 = session.query(Measurement.date).\
+        filter(Measurement.date == start_date).first() is not None
+    exists_2 = session.query(Measurement.date).\
+        filter(Measurement.date == end_date).first() is not None
+    if exists_1 is False:
+        return jsonify({"error": "Start date not found.  Please ensure you have entered your start date in the yyyy-mm-dd format"}), 404
+        session.close()
+    elif exists_2 is False:
+        return jsonify({"error": "End date not found.  Please ensure you have entered your end date in the yyyy-mm-dd format"}), 404
+        session.close()
+    else:
+        sel = [func.min(Measurement.tobs),
            func.max(Measurement.tobs),
            func.avg(Measurement.tobs)]
-    for date in Measurement.date:
-        if start in date and end in date:
-            temp_stats_2 = session.query(*sel).\
-                filter(Measurement.date.between(start, end)).all()
-            return jsonify(temp_stats_2)
-        return jsonify({"error": "Date not found."}), 404
+        inclusive_start = datetime.strptime(start_date, "%Y-%m-%d") - dt.timedelta(days=1)
+        inclusive_end = datetime.strptime(end_date, "%Y-%m-%d") + dt.timedelta(days=1)
+        temp_stats_2 = session.query(*sel). \
+            filter(Measurement.date.between(inclusive_start, inclusive_end)).all()
+        temperature_stats_2 = list(np.ravel(temp_stats_2))
+        return jsonify(temperature_stats_2)
     session.close()
 
 if __name__ == "__main__":
